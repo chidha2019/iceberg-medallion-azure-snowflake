@@ -1,0 +1,55 @@
+# Declarative contract for every on-prem source dataset.
+# The ingestion engine, bronze DDL generator and tests all read this file.
+version: 1
+defaults:
+  file_pattern: "*.csv"
+  delimiter: ","
+  encoding: utf-8
+  header: true
+  blob_prefix: "landing"
+  load_mode: append            # append | full_refresh
+  archive_after_upload: true
+
+datasets:
+  - name: customers
+    source_system: CRM_ONPREM
+    description: Customer master extracted nightly from the on-prem CRM.
+    primary_key: [customer_id]
+    cdc_column: updated_at
+    schema:
+      - {name: customer_id, type: STRING, nullable: false}
+      - {name: first_name,  type: STRING}
+      - {name: last_name,   type: STRING}
+      - {name: email,       type: STRING}
+      - {name: country,     type: STRING}
+      - {name: signup_date, type: DATE}
+      - {name: updated_at,  type: TIMESTAMP}
+
+  - name: products
+    source_system: ERP_ONPREM
+    description: Product catalog from the on-prem ERP.
+    primary_key: [product_id]
+    cdc_column: updated_at
+    schema:
+      - {name: product_id,  type: STRING, nullable: false}
+      - {name: sku,         type: STRING}
+      - {name: product_name,type: STRING}
+      - {name: category,    type: STRING}
+      - {name: unit_price,  type: DECIMAL(12,2)}
+      - {name: active,      type: BOOLEAN}
+      - {name: updated_at,  type: TIMESTAMP}
+
+  - name: orders
+    source_system: OMS_ONPREM
+    description: Order line items from the on-prem order management system.
+    primary_key: [order_id, line_number]
+    cdc_column: order_ts
+    schema:
+      - {name: order_id,    type: STRING, nullable: false}
+      - {name: line_number, type: INTEGER, nullable: false}
+      - {name: customer_id, type: STRING, nullable: false}
+      - {name: product_id,  type: STRING, nullable: false}
+      - {name: quantity,    type: INTEGER}
+      - {name: unit_price,  type: DECIMAL(12,2)}
+      - {name: order_status,type: STRING}
+      - {name: order_ts,    type: TIMESTAMP}

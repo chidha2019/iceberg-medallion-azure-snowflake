@@ -1,0 +1,5 @@
+product_id,sku,product_name,category,unit_price,active,updated_at
+P100,SKU-100,Wireless Mouse,Peripherals,24.99,true,2026-10-27T00:30:00
+P101,SKU-101,Mechanical Keyboard,Peripherals,89.00,true,2026-10-27T00:30:00
+P102,SKU-102,27in Monitor,Displays,249.50,true,2026-10-27T00:30:00
+P103,SKU-103,USB-C Hub,Accessories,39.95,false,2026-10-27T00:30:00

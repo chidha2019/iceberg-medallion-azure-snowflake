@@ -1,0 +1,6 @@
+customer_id,first_name,last_name,email,country,signup_date,updated_at
+C001,Ava,Nguyen,AVA.NGUYEN@example.com,US,2024-01-15,2026-10-27T01:10:00
+C002,Liam,Patel,liam.patel@example.com ,CA,2024-03-02,2026-10-27T01:10:00
+C003,Noah,Garcia,noah.garcia@example.com,US,2025-06-20,2026-10-27T01:10:00
+C003,Noah,Garcia,noah.garcia@example.com,US,2025-06-20,2026-10-26T01:10:00
+C004,Mia,Okafor,,NG,2025-11-11,2026-10-27T01:10:00

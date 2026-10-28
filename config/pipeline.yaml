@@ -1,0 +1,14 @@
+# Orchestration graph: which assets run, in what order, with what SLAs.
+version: 1
+schedule: "0 2 * * *"          # 02:00 UTC daily
+retries: 2
+retry_delay_seconds: 300
+layers:
+  bronze:
+    assets: [bronze.customers, bronze.products, bronze.orders]
+  silver:
+    assets: [silver.dim_customer, silver.dim_product, silver.fct_order_line]
+  gold:
+    assets: [gold.customer_360, gold.daily_sales, gold.product_performance]
+quality:
+  fail_pipeline_on: [error]    # warn-level checks log but do not block

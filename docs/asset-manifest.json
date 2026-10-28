@@ -1,0 +1,292 @@
+{
+  "assets": [
+    {
+      "name": "bronze.customers",
+      "layer": "bronze",
+      "output": "LAKEHOUSE.BRONZE.CUSTOMERS",
+      "inputs": [
+        "source:CRM_ONPREM.customers"
+      ],
+      "grain": "one row per CSV record (append-only)",
+      "keys": [
+        "customer_id",
+        "_ingest_sha256"
+      ],
+      "transformations": [
+        "type cast",
+        "audit columns"
+      ],
+      "description": "Raw customer extracts landed from on-prem CRM.",
+      "owner": "data-platform",
+      "sql_file": null,
+      "module": "lakehouse.bronze.load",
+      "entry_point": "bronze_customers"
+    },
+    {
+      "name": "bronze.products",
+      "layer": "bronze",
+      "output": "LAKEHOUSE.BRONZE.PRODUCTS",
+      "inputs": [
+        "source:ERP_ONPREM.products"
+      ],
+      "grain": "one row per CSV record (append-only)",
+      "keys": [
+        "product_id",
+        "_ingest_sha256"
+      ],
+      "transformations": [
+        "type cast",
+        "audit columns"
+      ],
+      "description": "Raw product catalog extracts landed from on-prem ERP.",
+      "owner": "data-platform",
+      "sql_file": null,
+      "module": "lakehouse.bronze.load",
+      "entry_point": "bronze_products"
+    },
+    {
+      "name": "bronze.orders",
+      "layer": "bronze",
+      "output": "LAKEHOUSE.BRONZE.ORDERS",
+      "inputs": [
+        "source:OMS_ONPREM.orders"
+      ],
+      "grain": "one row per CSV record (append-only)",
+      "keys": [
+        "order_id",
+        "line_number",
+        "_ingest_sha256"
+      ],
+      "transformations": [
+        "type cast",
+        "audit columns"
+      ],
+      "description": "Raw order line extracts landed from on-prem OMS.",
+      "owner": "data-platform",
+      "sql_file": null,
+      "module": "lakehouse.bronze.load",
+      "entry_point": "bronze_orders"
+    },
+    {
+      "name": "silver.dim_customer",
+      "layer": "silver",
+      "output": "LAKEHOUSE.SILVER.DIM_CUSTOMER",
+      "inputs": [
+        "bronze.customers"
+      ],
+      "grain": "one row per customer_id (latest version)",
+      "keys": [
+        "customer_id"
+      ],
+      "transformations": [
+        "dedupe on customer_id keeping max(updated_at)",
+        "lower+trim email",
+        "upper country ISO2",
+        "proper-case names",
+        "null email -> is_contactable=false"
+      ],
+      "description": "Conformed customer dimension (SCD type 1).",
+      "owner": "data-platform",
+      "sql_file": "20_silver/dim_customer.sql",
+      "module": "lakehouse.silver.dim_customer",
+      "entry_point": "dim_customer"
+    },
+    {
+      "name": "silver.dim_product",
+      "layer": "silver",
+      "output": "LAKEHOUSE.SILVER.DIM_PRODUCT",
+      "inputs": [
+        "bronze.products"
+      ],
+      "grain": "one row per product_id (latest version)",
+      "keys": [
+        "product_id"
+      ],
+      "transformations": [
+        "dedupe on product_id keeping max(updated_at)",
+        "standardise category",
+        "unit_price must be > 0"
+      ],
+      "description": "Conformed product dimension.",
+      "owner": "data-platform",
+      "sql_file": "20_silver/dim_product.sql",
+      "module": "lakehouse.silver.dim_product",
+      "entry_point": "dim_product"
+    },
+    {
+      "name": "silver.fct_order_line",
+      "layer": "silver",
+      "output": "LAKEHOUSE.SILVER.FCT_ORDER_LINE",
+      "inputs": [
+        "bronze.orders",
+        "silver.dim_customer",
+        "silver.dim_product"
+      ],
+      "grain": "one row per order_id + line_number",
+      "keys": [
+        "order_id",
+        "line_number"
+      ],
+      "transformations": [
+        "dedupe on (order_id, line_number) keeping latest _ingest_ts",
+        "derive line_amount = quantity * unit_price",
+        "order_date = date(order_ts)",
+        "referential check: unknown customer/product -> quarantine table"
+      ],
+      "description": "Cleansed order-line fact with referential integrity enforced.",
+      "owner": "data-platform",
+      "sql_file": "20_silver/fct_order_line.sql",
+      "module": "lakehouse.silver.fct_order_line",
+      "entry_point": "fct_order_line"
+    },
+    {
+      "name": "gold.customer_360",
+      "layer": "gold",
+      "output": "LAKEHOUSE.GOLD.CUSTOMER_360",
+      "inputs": [
+        "silver.dim_customer",
+        "silver.fct_order_line"
+      ],
+      "grain": "one row per customer_id",
+      "keys": [
+        "customer_id"
+      ],
+      "transformations": [
+        "left join customers to completed order lines",
+        "aggregate: order_count, lifetime_value, first/last order date",
+        "derive customer_segment by lifetime_value tiers"
+      ],
+      "description": "Customer 360 aggregate for CRM and marketing analytics.",
+      "owner": "data-platform",
+      "sql_file": "30_gold/customer_360.sql",
+      "module": "lakehouse.gold.customer_360",
+      "entry_point": "customer_360"
+    },
+    {
+      "name": "gold.daily_sales",
+      "layer": "gold",
+      "output": "LAKEHOUSE.GOLD.DAILY_SALES",
+      "inputs": [
+        "silver.fct_order_line",
+        "silver.dim_product",
+        "silver.dim_customer"
+      ],
+      "grain": "one row per order_date + category + country",
+      "keys": [
+        "order_date",
+        "category",
+        "country"
+      ],
+      "transformations": [
+        "inner join fact to product and customer dims",
+        "filter order_status = COMPLETED",
+        "aggregate: gross_revenue, units_sold, order_count, distinct_customers"
+      ],
+      "description": "Daily sales rollup by product category and customer country.",
+      "owner": "data-platform",
+      "sql_file": "30_gold/daily_sales.sql",
+      "module": "lakehouse.gold.daily_sales",
+      "entry_point": "daily_sales"
+    },
+    {
+      "name": "gold.product_performance",
+      "layer": "gold",
+      "output": "LAKEHOUSE.GOLD.PRODUCT_PERFORMANCE",
+      "inputs": [
+        "silver.dim_product",
+        "silver.fct_order_line"
+      ],
+      "grain": "one row per product_id",
+      "keys": [
+        "product_id"
+      ],
+      "transformations": [
+        "left join products to order lines",
+        "aggregate: units_sold, revenue, cancel_rate",
+        "window: revenue_rank over category"
+      ],
+      "description": "Product performance with category ranking.",
+      "owner": "data-platform",
+      "sql_file": "30_gold/product_performance.sql",
+      "module": "lakehouse.gold.product_performance",
+      "entry_point": "product_performance"
+    }
+  ],
+  "edges": [
+    {
+      "from": "source:CRM_ONPREM.customers",
+      "to": "bronze.customers",
+      "type": "FEEDS"
+    },
+    {
+      "from": "source:ERP_ONPREM.products",
+      "to": "bronze.products",
+      "type": "FEEDS"
+    },
+    {
+      "from": "source:OMS_ONPREM.orders",
+      "to": "bronze.orders",
+      "type": "FEEDS"
+    },
+    {
+      "from": "bronze.customers",
+      "to": "silver.dim_customer",
+      "type": "FEEDS"
+    },
+    {
+      "from": "bronze.products",
+      "to": "silver.dim_product",
+      "type": "FEEDS"
+    },
+    {
+      "from": "bronze.orders",
+      "to": "silver.fct_order_line",
+      "type": "FEEDS"
+    },
+    {
+      "from": "silver.dim_customer",
+      "to": "silver.fct_order_line",
+      "type": "FEEDS"
+    },
+    {
+      "from": "silver.dim_product",
+      "to": "silver.fct_order_line",
+      "type": "FEEDS"
+    },
+    {
+      "from": "silver.dim_customer",
+      "to": "gold.customer_360",
+      "type": "FEEDS"
+    },
+    {
+      "from": "silver.fct_order_line",
+      "to": "gold.customer_360",
+      "type": "FEEDS"
+    },
+    {
+      "from": "silver.fct_order_line",
+      "to": "gold.daily_sales",
+      "type": "FEEDS"
+    },
+    {
+      "from": "silver.dim_product",
+      "to": "gold.daily_sales",
+      "type": "FEEDS"
+    },
+    {
+      "from": "silver.dim_customer",
+      "to": "gold.daily_sales",
+      "type": "FEEDS"
+    },
+    {
+      "from": "silver.dim_product",
+      "to": "gold.product_performance",
+      "type": "FEEDS"
+    },
+    {
+      "from": "silver.fct_order_line",
+      "to": "gold.product_performance",
+      "type": "FEEDS"
+    }
+  ]
+}
